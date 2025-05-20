@@ -17,7 +17,8 @@ class User(db.Model):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relacionamentos
-    orders = relationship('Order', back_populates='customer', lazy=True)
+    # Por esta (note as aspas simples em 'Order'):
+    orders = db.relationship('Order', backref='user', lazy=True)
     
     def __repr__(self):
         return f'<User {self.name}>'
