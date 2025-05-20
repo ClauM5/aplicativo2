@@ -1,44 +1,29 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
-
-db = SQLAlchemy()
+from src.models.db import db
 
 class Product(db.Model):
     __tablename__ = 'products'
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
-    description = Column(String(500))
+    description = Column(String(500), nullable=True)
     price = Column(Float, nullable=False)
-    unit = Column(String(20), nullable=False)  # kg, unid, bandeja, etc.
-    image = Column(String(255))
+    image = Column(String(200), nullable=True)
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
-    stock = Column(Integer, default=0)
-    organic = Column(Boolean, default=False)
-    featured = Column(Boolean, default=False)
-    discount = Column(Integer, default=0)  # Percentual de desconto
-    active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    stock = Column(Integer, nullable=False, default=0)
+    unit = Column(String(20), nullable=False, default='un')
+    featured = Column(Integer, nullable=False, default=0)
     
-    # Relacionamentos
-    category = relationship('Category', back_populates='products')
-    
-    def __repr__(self):
-        return f'<Product {self.name}>'
-
-class Category(db.Model):
-    __tablename__ = 'categories'
-    
-    id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False)
-    description = Column(String(500))
-    image = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relacionamentos
-    products = relationship('Product', back_populates='category', lazy=True)
-    
-    def __repr__(self):
-        return f'<Category {self.name}>'
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'price': self.price,
+            'image': self.image,
+            'category_id': self.category_id,
+            'stock': self.stock,
+            'unit': self.unit,
+            'featured': self.featured
+        }

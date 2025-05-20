@@ -1,319 +1,204 @@
-from flask import Blueprint, jsonify, request, current_app
-from src.models.order import Order, OrderItem, db
-import jwt
+from flask import Blueprint, jsonify, request
+from src.models.order import Order
+from src.models.order_item import OrderItem
+from src.models.product import Product
+from src.models.user import User
+from src.models.db import db
 import datetime
-from sqlalchemy import desc
+import jwt
+import os
 
-order_bp = Blueprint('order', __name__)
+order_bp = Blueprint('order_bp', __name__)
 
-# Função auxiliar para verificar token
-def verify_token(admin_required=False):
-    token = request.headers.get('Authorization')
-    if not token:
-        return None, {'message': 'Token não fornecido!'}, 401
+@order_bp.route('/api/orders', methods=['GET'])
+def get_orders():
+    # Aqui deveria ter autenticação JWT
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Token não fornecido'}), 401
+    
+    token = auth_header.split(' ')[1]
     
     try:
-        token = token.split(' ')[1]
-        data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
-        
-        if admin_required and data.get('role') != 'admin':
-            return None, {'message': 'Acesso não autorizado!'}, 403
-        
-        return data, None, None
-    except:
-        return None, {'message': 'Token inválido!'}, 401
+        payload = jwt.decode(
+            token,
+            os.environ.get('SECRET_KEY', 'hortifruti-delivery-secret-key'),
+            algorithms=['HS256']
+        )
+        user_id = payload['user_id']
+        is_admin = payload.get('is_admin', False)
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Token inválido'}), 401
+    
+    if is_admin:
+        # Administradores podem ver todos os pedidos
+        orders = Order.query.all()
+    else:
+        # Usuários comuns só podem ver seus próprios pedidos
+        orders = Order.query.filter_by(user_id=user_id).all()
+    
+    return jsonify({'orders': [order.to_dict() for order in orders]}), 200
 
-# Rotas para pedidos
-@order_bp.route('/', methods=['GET'])
-def get_orders():
-    # Verificar token
-    data, error, code = verify_token(admin_required=True)
-    if error:
-        return jsonify(error), code
-    
-    # Parâmetros de filtro
-    status = request.args.get('status')
-    customer_id = request.args.get('customer_id')
-    
-    query = Order.query.order_by(desc(Order.created_at))
-    
-    if status:
-        query = query.filter_by(status=status)
-    
-    if customer_id:
-        query = query.filter_by(customer_id=customer_id)
-    
-    orders = query.all()
-    
-    result = []
-    for order in orders:
-        order_data = {
-            'id': order.id,
-            'customer_id': order.customer_id,
-            'customer_name': order.customer_name,
-            'customer_email': order.customer_email,
-            'customer_phone': order.customer_phone,
-            'delivery_address': order.delivery_address,
-            'payment': order.payment,
-            'notes': order.notes,
-            'subtotal': order.subtotal,
-            'delivery_fee': order.delivery_fee,
-            'total': order.total,
-            'status': order.status,
-            'created_at': order.created_at.isoformat(),
-            'items': []
-        }
-        
-        # Adicionar itens do pedido
-        for item in order.items:
-            order_data['items'].append({
-                'id': item.id,
-                'product_id': item.product_id,
-                'product_name': item.product_name,
-                'price': item.price,
-                'quantity': item.quantity
-            })
-        
-        result.append(order_data)
-    
-    return jsonify(result), 200
-
-@order_bp.route('/customer', methods=['GET'])
-def get_customer_orders():
-    # Verificar token
-    data, error, code = verify_token()
-    if error:
-        return jsonify(error), code
-    
-    # Obter pedidos do cliente
-    customer_id = data['user_id']
-    orders = Order.query.filter_by(customer_id=customer_id).order_by(desc(Order.created_at)).all()
-    
-    result = []
-    for order in orders:
-        order_data = {
-            'id': order.id,
-            'delivery_address': order.delivery_address,
-            'payment': order.payment,
-            'subtotal': order.subtotal,
-            'delivery_fee': order.delivery_fee,
-            'total': order.total,
-            'status': order.status,
-            'created_at': order.created_at.isoformat(),
-            'items': []
-        }
-        
-        # Adicionar itens do pedido
-        for item in order.items:
-            order_data['items'].append({
-                'product_id': item.product_id,
-                'product_name': item.product_name,
-                'price': item.price,
-                'quantity': item.quantity
-            })
-        
-        result.append(order_data)
-    
-    return jsonify(result), 200
-
-@order_bp.route('/<int:order_id>', methods=['GET'])
+@order_bp.route('/api/orders/<int:order_id>', methods=['GET'])
 def get_order(order_id):
-    # Verificar token
-    data, error, code = verify_token()
-    if error:
-        return jsonify(error), code
+    # Aqui deveria ter autenticação JWT
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Token não fornecido'}), 401
     
-    # Obter pedido
-    order = Order.query.get_or_404(order_id)
+    token = auth_header.split(' ')[1]
     
-    # Verificar se o usuário tem permissão para acessar este pedido
-    if data.get('role') != 'admin' and order.customer_id != data['user_id']:
-        return jsonify({'message': 'Acesso não autorizado!'}), 403
+    try:
+        payload = jwt.decode(
+            token,
+            os.environ.get('SECRET_KEY', 'hortifruti-delivery-secret-key'),
+            algorithms=['HS256']
+        )
+        user_id = payload['user_id']
+        is_admin = payload.get('is_admin', False)
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Token inválido'}), 401
     
-    # Montar resposta
-    order_data = {
-        'id': order.id,
-        'customer_id': order.customer_id,
-        'customer_name': order.customer_name,
-        'customer_email': order.customer_email,
-        'customer_phone': order.customer_phone,
-        'delivery_address': order.delivery_address,
-        'payment': order.payment,
-        'notes': order.notes,
-        'subtotal': order.subtotal,
-        'delivery_fee': order.delivery_fee,
-        'total': order.total,
-        'status': order.status,
-        'created_at': order.created_at.isoformat(),
-        'items': []
-    }
+    order = Order.query.get(order_id)
     
-    # Adicionar itens do pedido
-    for item in order.items:
-        order_data['items'].append({
-            'id': item.id,
-            'product_id': item.product_id,
-            'product_name': item.product_name,
-            'price': item.price,
-            'quantity': item.quantity
-        })
+    if not order:
+        return jsonify({'error': 'Pedido não encontrado'}), 404
     
-    return jsonify(order_data), 200
+    # Verificar se o usuário tem permissão para ver este pedido
+    if not is_admin and order.user_id != user_id:
+        return jsonify({'error': 'Acesso negado'}), 403
+    
+    return jsonify({'order': order.to_dict()}), 200
 
-@order_bp.route('/', methods=['POST'])
+@order_bp.route('/api/orders', methods=['POST'])
 def create_order():
-    # Verificar token
-    data, error, code = verify_token()
-    if error:
-        return jsonify(error), code
+    # Aqui deveria ter autenticação JWT
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Token não fornecido'}), 401
     
-    # Obter dados do pedido
-    order_data = request.get_json()
+    token = auth_header.split(' ')[1]
     
-    # Criar novo pedido
-    new_order = Order(
-        customer_id=data['user_id'],
-        customer_name=order_data['customer_name'],
-        customer_email=order_data['customer_email'],
-        customer_phone=order_data.get('customer_phone', ''),
-        delivery_address=order_data['delivery_address'],
-        payment=order_data['payment'],
-        notes=order_data.get('notes', ''),
-        subtotal=order_data['subtotal'],
-        delivery_fee=order_data['delivery_fee'],
-        total=order_data['total'],
-        status='pending'
+    try:
+        payload = jwt.decode(
+            token,
+            os.environ.get('SECRET_KEY', 'hortifruti-delivery-secret-key'),
+            algorithms=['HS256']
+        )
+        user_id = payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Token inválido'}), 401
+    
+    data = request.get_json()
+    
+    if not data or not data.get('items') or not data.get('address') or not data.get('payment_method'):
+        return jsonify({'error': 'Dados incompletos'}), 400
+    
+    # Verificar se o usuário existe
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'Usuário não encontrado'}), 404
+    
+    # Calcular o total do pedido
+    total = 0
+    items_data = []
+    
+    for item in data['items']:
+        if not item.get('product_id') or not item.get('quantity'):
+            return jsonify({'error': 'Dados de item incompletos'}), 400
+        
+        product = Product.query.get(item['product_id'])
+        if not product:
+            return jsonify({'error': f'Produto {item["product_id"]} não encontrado'}), 404
+        
+        # Verificar estoque
+        if product.stock < item['quantity']:
+            return jsonify({'error': f'Estoque insuficiente para o produto {product.name}'}), 400
+        
+        subtotal = product.price * item['quantity']
+        total += subtotal
+        
+        items_data.append({
+            'product_id': product.id,
+            'quantity': item['quantity'],
+            'price': product.price
+        })
+        
+        # Atualizar estoque
+        product.stock -= item['quantity']
+    
+    # Criar o pedido
+    order = Order(
+        user_id=user_id,
+        status='pending',
+        total=total,
+        address=data['address'],
+        payment_method=data['payment_method'],
+        created_at=datetime.datetime.now()
     )
     
-    # Adicionar itens do pedido
-    for item_data in order_data['items']:
-        item = OrderItem(
+    db.session.add(order)
+    db.session.flush()  # Para obter o ID do pedido
+    
+    # Criar os itens do pedido
+    for item_data in items_data:
+        order_item = OrderItem(
+            order_id=order.id,
             product_id=item_data['product_id'],
-            product_name=item_data['product_name'],
-            price=item_data['price'],
-            quantity=item_data['quantity']
+            quantity=item_data['quantity'],
+            price=item_data['price']
         )
-        new_order.items.append(item)
+        db.session.add(order_item)
     
-    db.session.add(new_order)
     db.session.commit()
     
-    return jsonify({
-        'id': new_order.id,
-        'message': 'Pedido criado com sucesso!'
-    }), 201
+    return jsonify({'message': 'Pedido criado com sucesso', 'order': order.to_dict()}), 201
 
-@order_bp.route('/<int:order_id>/status', methods=['PUT'])
+@order_bp.route('/api/orders/<int:order_id>/status', methods=['PUT'])
 def update_order_status(order_id):
-    # Verificar token
-    data, error, code = verify_token(admin_required=True)
-    if error:
-        return jsonify(error), code
+    # Aqui deveria ter autenticação JWT para admin
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Token não fornecido'}), 401
     
-    # Obter pedido
-    order = Order.query.get_or_404(order_id)
+    token = auth_header.split(' ')[1]
     
-    # Obter novo status
-    status_data = request.get_json()
-    new_status = status_data['status']
+    try:
+        payload = jwt.decode(
+            token,
+            os.environ.get('SECRET_KEY', 'hortifruti-delivery-secret-key'),
+            algorithms=['HS256']
+        )
+        is_admin = payload.get('is_admin', False)
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token expirado'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Token inválido'}), 401
     
-    # Validar status
-    valid_statuses = ['pending', 'processing', 'shipping', 'delivered', 'cancelled']
-    if new_status not in valid_statuses:
-        return jsonify({'message': 'Status inválido!'}), 400
+    if not is_admin:
+        return jsonify({'error': 'Acesso negado'}), 403
     
-    # Atualizar status
-    order.status = new_status
+    order = Order.query.get(order_id)
+    
+    if not order:
+        return jsonify({'error': 'Pedido não encontrado'}), 404
+    
+    data = request.get_json()
+    
+    if not data or not data.get('status'):
+        return jsonify({'error': 'Status não fornecido'}), 400
+    
+    valid_statuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+    if data['status'] not in valid_statuses:
+        return jsonify({'error': 'Status inválido'}), 400
+    
+    order.status = data['status']
     db.session.commit()
     
-    return jsonify({
-        'id': order.id,
-        'status': order.status,
-        'message': 'Status do pedido atualizado com sucesso!'
-    }), 200
-
-@order_bp.route('/<int:order_id>/cancel', methods=['PUT'])
-def cancel_order(order_id):
-    # Verificar token
-    data, error, code = verify_token()
-    if error:
-        return jsonify(error), code
-    
-    # Obter pedido
-    order = Order.query.get_or_404(order_id)
-    
-    # Verificar se o usuário tem permissão para cancelar este pedido
-    if data.get('role') != 'admin' and order.customer_id != data['user_id']:
-        return jsonify({'message': 'Acesso não autorizado!'}), 403
-    
-    # Verificar se o pedido pode ser cancelado
-    if order.status == 'delivered' or order.status == 'cancelled':
-        return jsonify({'message': 'Este pedido não pode ser cancelado!'}), 400
-    
-    # Cancelar pedido
-    order.status = 'cancelled'
-    db.session.commit()
-    
-    return jsonify({
-        'id': order.id,
-        'status': order.status,
-        'message': 'Pedido cancelado com sucesso!'
-    }), 200
-
-@order_bp.route('/count/today', methods=['GET'])
-def get_today_orders_count():
-    # Verificar token
-    data, error, code = verify_token(admin_required=True)
-    if error:
-        return jsonify(error), code
-    
-    # Obter data de hoje
-    today = datetime.datetime.utcnow().date()
-    
-    # Contar pedidos de hoje
-    count = Order.query.filter(
-        db.func.date(Order.created_at) == today
-    ).count()
-    
-    return jsonify({'count': count}), 200
-
-@order_bp.route('/sales/today', methods=['GET'])
-def get_today_sales():
-    # Verificar token
-    data, error, code = verify_token(admin_required=True)
-    if error:
-        return jsonify(error), code
-    
-    # Obter data de hoje
-    today = datetime.datetime.utcnow().date()
-    
-    # Calcular vendas de hoje
-    result = db.session.query(db.func.sum(Order.total)).filter(
-        db.func.date(Order.created_at) == today
-    ).scalar()
-    
-    total = result if result else 0
-    
-    return jsonify({'total': total}), 200
-
-@order_bp.route('/recent', methods=['GET'])
-def get_recent_orders():
-    # Verificar token
-    data, error, code = verify_token(admin_required=True)
-    if error:
-        return jsonify(error), code
-    
-    # Obter pedidos recentes
-    orders = Order.query.order_by(desc(Order.created_at)).limit(5).all()
-    
-    result = []
-    for order in orders:
-        result.append({
-            'id': order.id,
-            'customer_name': order.customer_name,
-            'total': order.total,
-            'status': order.status,
-            'created_at': order.created_at.isoformat()
-        })
-    
-    return jsonify(result), 200
+    return jsonify({'message': 'Status do pedido atualizado com sucesso', 'order': order.to_dict()}), 200
