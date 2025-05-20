@@ -1,46 +1,31 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
-
-db = SQLAlchemy()
+from src.main import db
+# Removida a importação circular: from src.models.user import User
 
 class Order(db.Model):
     __tablename__ = 'orders'
     
     id = Column(Integer, primary_key=True)
-    customer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    customer_name = Column(String(100), nullable=False)
-    customer_email = Column(String(100), nullable=False)
-    customer_phone = Column(String(20))
-    delivery_address = Column(JSON, nullable=False)
-    payment = Column(JSON, nullable=False)
-    notes = Column(String(500))
-    subtotal = Column(Float, nullable=False)
-    delivery_fee = Column(Float, nullable=False)
+    # Usando string para o ForeignKey em vez da referência direta à classe
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    status = Column(String(20), nullable=False, default='pending')
     total = Column(Float, nullable=False)
-    status = Column(String(20), default='pending')  # pending, processing, shipping, delivered, cancelled
-    created_at = Column(DateTime, default=datetime.utcnow)
+    address = Column(String(200), nullable=False)
+    payment_method = Column(String(50), nullable=False)
+    created_at = Column(DateTime, nullable=False)
     
-    # Relacionamentos
-    customer = relationship('User', back_populates='orders')
-    items = relationship('OrderItem', back_populates='order', cascade='all, delete-orphan')
+    # Usando string para evitar dependência circular
+    items = relationship('OrderItem', backref='order', lazy=True, cascade="all, delete-orphan")
     
-    def __repr__(self):
-        return f'<Order {self.id}>'
-
-class OrderItem(db.Model):
-    __tablename__ = 'order_items'
-    
-    id = Column(Integer, primary_key=True)
-    order_id = Column(Integer, ForeignKey('orders.id'), nullable=False)
-    product_id = Column(Integer, nullable=False)
-    product_name = Column(String(100), nullable=False)
-    price = Column(Float, nullable=False)
-    quantity = Column(Float, nullable=False)
-    
-    # Relacionamentos
-    order = relationship('Order', back_populates='items')
-    
-    def __repr__(self):
-        return f'<OrderItem {self.product_name}>'
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'status': self.status,
+            'total': self.total,
+            'address': self.address,
+            'payment_method': self.payment_method,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'items': [item.to_dict() for item in self.items]
+        }
